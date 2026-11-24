@@ -188,7 +188,7 @@ window.__ModuleLoader__.load({
         "This is a profile-wide reference. Every server using it receives this value.",
       noMissing: "No writable missing references. Refresh status.",
     };
-    const css = `.mcpdesk{color:var(--dsw-alias-label-primary);font:inherit;max-width:58rem;margin:auto;display:grid;gap:16px;align-content:start}.mcpdesk *{box-sizing:border-box}.mcpdesk h2,.mcpdesk h3,.mcpdesk p{margin:0}.mcpdesk h2{font-size:1.3rem;letter-spacing:-.02em}.mcpdesk small,.mcpdesk .muted{color:var(--dsw-alias-label-tertiary);font-size:.83rem}.mcpdesk header,.mcpdesk .row,.mcpdesk .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mcpdesk .grow{flex:1 1 12em;min-width:0;overflow-wrap:anywhere}.mcpdesk button,.mcpdesk .link,.mcpdesk select,.mcpdesk input:not([type=checkbox]){background:transparent;color:inherit;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:6px 10px;font:inherit;font-size:.84rem}.mcpdesk button,.mcpdesk .link{cursor:pointer}.mcpdesk button:hover,.mcpdesk button[aria-pressed=true]{border-color:var(--dsw-alias-label-primary)}.mcpdesk button:disabled{opacity:.48;cursor:default}.mcpdesk :focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.mcpdesk .primary,.mcpdesk .link{color:var(--dsw-alias-state-business-primary);font-weight:600}.mcpdesk .list,.mcpdesk .box{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;overflow:hidden}.mcpdesk .item+.item{border-top:1px solid var(--dsw-alias-border-l2)}.mcpdesk .item,.mcpdesk .box{padding:14px}.mcpdesk .sub{display:grid;gap:9px;padding-top:12px;overflow-wrap:anywhere}.mcpdesk .sub label{display:grid;gap:4px}.mcpdesk .sub label.line{display:flex;align-items:center;gap:7px}.mcpdesk .badge{display:inline-flex;align-items:center;gap:5px;font-size:.8rem}.mcpdesk .badge:before{content:'';width:.45em;height:.45em;border-radius:50%;background:currentColor}.mcpdesk .connected{color:var(--dsw-alias-state-business-primary)}.mcpdesk code{font-size:.82em;white-space:pre-wrap;overflow-wrap:anywhere}.mcpdesk .notice{border-inline-start:3px solid var(--dsw-alias-state-business-primary);padding:6px 10px}.mcpdesk .preview{padding:8px 0;border-top:1px solid var(--dsw-alias-border-l2)}`;
+    const css = `.mcpdesk{color:var(--dsw-alias-label-primary);font:inherit;max-width:58rem;margin:auto;display:grid;gap:16px;align-content:start}.mcpdesk.mcpdesk-page{width:100%;min-width:0;max-width:none;grid-template-columns:minmax(0,1fr)}.mcpdesk *{box-sizing:border-box}.mcpdesk h2,.mcpdesk h3,.mcpdesk p{margin:0}.mcpdesk h2{font-size:1.3rem;letter-spacing:-.02em}.mcpdesk small,.mcpdesk .muted{color:var(--dsw-alias-label-tertiary);font-size:.83rem}.mcpdesk header,.mcpdesk .row,.mcpdesk .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.mcpdesk .grow{flex:1 1 12em;min-width:0;overflow-wrap:anywhere}.mcpdesk button,.mcpdesk .link,.mcpdesk select,.mcpdesk input:not([type=checkbox]){background:transparent;color:inherit;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;padding:6px 10px;font:inherit;font-size:.84rem}.mcpdesk button,.mcpdesk .link{cursor:pointer}.mcpdesk button:hover,.mcpdesk button[aria-pressed=true]{border-color:var(--dsw-alias-label-primary)}.mcpdesk button:disabled{opacity:.48;cursor:default}.mcpdesk :focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.mcpdesk .primary,.mcpdesk .link{color:var(--dsw-alias-state-business-primary);font-weight:600}.mcpdesk .list,.mcpdesk .box{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;overflow:hidden}.mcpdesk .item+.item{border-top:1px solid var(--dsw-alias-border-l2)}.mcpdesk .item,.mcpdesk .box{padding:14px}.mcpdesk .sub{display:grid;gap:9px;padding-top:12px;overflow-wrap:anywhere}.mcpdesk .sub label{display:grid;gap:4px}.mcpdesk .sub label.line{display:flex;align-items:center;gap:7px}.mcpdesk .badge{display:inline-flex;align-items:center;gap:5px;font-size:.8rem}.mcpdesk .badge:before{content:'';width:.45em;height:.45em;border-radius:50%;background:currentColor}.mcpdesk .connected{color:var(--dsw-alias-state-business-primary)}.mcpdesk code{font-size:.82em;white-space:pre-wrap;overflow-wrap:anywhere}.mcpdesk .notice{border-inline-start:3px solid var(--dsw-alias-state-business-primary);padding:6px 10px}.mcpdesk .preview{padding:8px 0;border-top:1px solid var(--dsw-alias-border-l2)}`;
     const api = async (b, signal) => {
       const r = await fetch(new URL("api/dsh-mcp-manage", document.baseURI), {
         method: "POST",
@@ -213,7 +213,7 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind("mcpDesk");
         const btn = (label, click, props = {}) =>
           h("button", { type: "button", onClick: click, ...props }, label);
-        function Panel() {
+        function Panel({ view }) {
           const [data, setData] = useState(null),
             [message, msg] = useState(""),
             [busy, setBusy] = useState(false),
@@ -791,7 +791,7 @@ window.__ModuleLoader__.load({
           const rows = (data?.rows || []).filter((r) => !filter || alertRow(r));
           return h(
             "section",
-            { className: "mcpdesk" },
+            { className: view === "page" ? "mcpdesk mcpdesk-page" : "mcpdesk" },
             h("style", null, css),
             h(
               "header",
@@ -852,6 +852,16 @@ window.__ModuleLoader__.load({
             ),
           );
         }
+        ctx.slots.inject("plugins.bundle.config", () =>
+          ctx.slots.register(
+            {
+              name: "plugins.bundle.config",
+              key: "dsh-mcp-manage",
+              locale: "mcpDesk",
+            },
+            Panel,
+          ),
+        );
         ctx.slots.inject("settings.section", () =>
           ctx.slots.register(
             {
