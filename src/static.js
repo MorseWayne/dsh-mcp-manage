@@ -2,9 +2,16 @@ import { createHash } from "node:crypto";
 import { check, plain, serverName } from "./common.js";
 // Static profile rows created by older Codex import bundles are not manager registrations.
 // Keep the original row, tool namespace, raw loader expressions and reload semantics intact.
-const revision = (id, c) =>
+const revision = (row, c) =>
   createHash("sha256")
-    .update(JSON.stringify([id, c]))
+    .update(
+      JSON.stringify([
+        row.id,
+        row.options.id,
+        row.options.disabled ?? false,
+        c,
+      ]),
+    )
     .digest("hex");
 export function statics(ctx) {
   return ctx.configEditor
@@ -18,16 +25,20 @@ export function statics(ctx) {
       const raw = row.options.config,
         config = row.fiber?.effectiveConfig ?? raw;
       const module = row.moduleNamespace;
-      const status = module?.connectionStatusOf?.(row.fiber)?.current() ?? {
-        state: row.options.disabled ? "disabled" : "unknown",
-      };
+      const disabled = row.disabled ?? !!row.options.disabled;
+      const status = disabled
+        ? { state: "disabled" }
+        : (row.fiber && module?.connectionStatusOf?.(row.fiber)?.current()) || {
+            state: "unknown",
+          };
       return {
         row,
         raw,
         config,
         status,
+        disabled,
         name: raw.serverName,
-        revision: revision(row.options.id, raw),
+        revision: revision(row, raw),
       };
     });
 }
@@ -56,10 +67,7 @@ export async function bindStatic(ctx, s, headers) {
     "已有未展开模板，不能安全切换凭据模式。",
   );
   await ctx.configEditor.edit(s.row, (current) => {
-    check(
-      revision(s.row.options.id, current) === s.revision,
-      "静态配置已变化，请刷新。",
-    );
+    check(revision(s.row, current) === s.revision, "静态配置已变化，请刷新。");
     return { ...current, expandTemplates: true, headers };
   });
 }

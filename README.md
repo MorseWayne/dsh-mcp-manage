@@ -10,6 +10,8 @@ DSH Web 的独立设置页。复用当前 profile 的 MCP Manager、Settings 和
 4. **从 Codex 导入**选择来源。面板打开时自动检测并显示宿主上的 Codex 配置路径：优先 `$CODEX_HOME/config.toml`，未设置时使用 `~/.codex/config.toml`。找到后直接点 **预览条目**；找不到或想使用其他配置时，点 **更改路径** 输入 TOML 绝对路径。检测不读取配置内容，也不会执行命令或自动导入。插件模式输入宿主上的插件目录绝对路径；读取 `.codex-plugin/plugin.json` 的 `mcpServers` 内联对象、其指向的 JSON 或默认 `.mcp.json`。不加载插件代码、hooks、skills 或 marketplace，不扫描 Codex 的登录存储。
 5. 检查预览、勾选、导入。**所有新服务先停用**，启用 stdio 会在宿主启动所列命令，因此只启用可信来源。已有配置和插件注册的同名服务不覆盖。预览五分钟失效；配置发生变化时重新预览。
 
+6. 在服务行直接 **启用 / 停用**；停用保留配置，之后可以重新启用。用户在当前 profile 新增或导入的服务，可以点 **更多 → 删除**，核对服务名后确认。删除只移除这一项 DSH 配置，不写 Codex 源文件、不删除凭据。旧 Codex 静态条目可单项启停，无需停用整个插件包；静态条目、继承配置和插件注册项在「更多」中说明不能删除的原因。
+
 ## 映射及边界
 
 | 来源 | DSH 行为 |
@@ -20,7 +22,7 @@ DSH Web 的独立设置页。复用当前 profile 的 MCP Manager、Settings 和
 | 静态 env/header 值 | 提交时写入独立凭据引用；预览仅显示键名及引用关系。命令和参数会在预览中展示，**不要把密钥放在 argv 中**。不导入带查询串的 URL。 |
 | 工具 allow/deny、审批、远端执行环境、`auth=chatgpt`、自定义 OAuth 参数或其他不支持字段 | 指出具体字段并阻止该条导入。不会把受限工具集降级为无限制。 |
 
-OAuth 支持内置管理器的可编辑配置，以及旧导入包作为独立 profile 行挂载的静态 HTTP MCP Client（URL 须为字面量）。静态行通过宿主 ConfigEditor 原位绑定引用，不创建同名实例；其启停仍由所属插件管理。插件动态注册的服务仅观察、探测或重连；agent preset 和嵌套 include 中的非 profile 行不在清单。现有自定义 Authorization 不会被 OAuth 静默覆盖。回调为 DSH Web 监听地址的 `/dsh-mcp-manage/oauth/callback`；浏览器必须能访问该地址。仅支持 HTTPS 或本机回环 HTTP；不支持设备码、DPoP、必须预注册客户端的服务或任意反向代理回调重写。授权请求目前不带服务自定义头；若端点需要额外路由头才能发现，需使用其静态凭据接入方式。
+OAuth 支持内置管理器的可编辑配置，以及旧导入包作为独立 profile 行挂载的静态 HTTP MCP Client（URL 须为字面量）。静态行通过宿主 ConfigEditor 原位绑定引用，不创建同名实例；启停通过宿主插件管理器仅更改对应行。插件动态注册的服务仅观察、探测或重连；agent preset 和嵌套 include 中的非 profile 行不在清单。现有自定义 Authorization 不会被 OAuth 静默覆盖。回调为 DSH Web 监听地址的 `/dsh-mcp-manage/oauth/callback`；浏览器必须能访问该地址。仅支持 HTTPS 或本机回环 HTTP；不支持设备码、DPoP、必须预注册客户端的服务或任意反向代理回调重写。授权请求目前不带服务自定义头；若端点需要额外路由头才能发现，需使用其静态凭据接入方式。
 
 ## 验证与卸载
 

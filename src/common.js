@@ -37,6 +37,17 @@ export function snapshot(ctx) {
   check(rows.length === 1, "未找到唯一的 DSH MCP 管理器。");
   const form = ctx.settings.describe().find((f) => f.ns === rows[0].options.id);
   check(form?.value?.servers, "当前 profile 不支持编辑 MCP 配置。");
-  return { ns: form.ns, revision: form.revision, servers: form.value.servers };
+  return {
+    ns: form.ns,
+    revision: form.revision,
+    servers: form.value.servers,
+    // Unsetting an inherited field restores its base; only user-only keys are deletions.
+    canRemove: (name) =>
+      plain(form.base) &&
+      plain(form.user) &&
+      own(form.value.servers, name) &&
+      own(form.user.servers, name) &&
+      !own(form.base.servers, name),
+  };
 }
 export const put = (path, value) => ({ op: "set", path, value });

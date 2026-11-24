@@ -20,6 +20,7 @@ export const inject = [
   "settings",
   "configEditor",
   "mcpManager",
+  "pluginManager",
   "credentials",
 ];
 export const API = "/api/dsh-mcp-manage";
@@ -73,7 +74,9 @@ export function management(ctx, callbackUrl) {
       if (b.action === "import") return imports.commit(b.id, b.names);
       const f = snapshot(ctx),
         live = ctx.mcpManager.list();
-      if (b.action === "list")
+      if (b.action === "list") {
+        const staticRows = statics(ctx);
+        const conflict = (n) => staticRows.some((s) => s.name === n);
         return {
           revision: f.revision,
           rows: live
@@ -83,11 +86,19 @@ export function management(ctx, callbackUrl) {
               count: status.toolCount,
               reason: diagnosis(status),
               note: oauth.note(name),
-              editable: own(f.servers, name),
+              editable: own(f.servers, name) && !conflict(name),
+              toggleable: own(f.servers, name) && !conflict(name),
+              removal: conflict(name)
+                ? "nameConflict"
+                : f.canRemove(name)
+                  ? "allowed"
+                  : own(f.servers, name)
+                    ? "inheritedRow"
+                    : "notUserRow",
               ...summary(own(f.servers, name) ? f.servers[name] : null),
             }))
             .concat(
-              statics(ctx)
+              staticRows
                 .filter((s) => !live.some((r) => r.name === s.name))
                 .map((s) => ({
                   ...summary(s.config),
@@ -98,19 +109,25 @@ export function management(ctx, callbackUrl) {
                   count: s.status.toolCount,
                   reason: diagnosis(s.status),
                   note: oauth.note(s.name),
-                  enabled: !!s.row.fiber && !s.row.options.disabled,
+                  enabled: !s.disabled,
+                  toggleable:
+                    !!s.row.id &&
+                    staticRows.filter((other) => other.name === s.name)
+                      .length === 1,
                   editable: false,
+                  removal: "staticRow",
                 })),
             ),
         };
+      }
       const n = b.name;
       const s = staticEntry(ctx, n);
+      check(s || b.rowRevision === undefined, "静态条目已变化，请刷新。");
       check(
         !s ||
           (!live.some((r) => r.name === n) &&
             s.revision === b.rowRevision &&
-            s.row.fiber &&
-            !s.row.options.disabled),
+            (b.action === "enable" || (s.row.fiber && !s.disabled))),
         "静态条目已变化、已停用或名称冲突。",
       );
       check(
@@ -146,9 +163,35 @@ export function management(ctx, callbackUrl) {
         e && f.revision === b.revision,
         "配置已变化或由其他插件管理，请刷新。",
       );
+      if (b.action === "remove") {
+        check(!s && f.canRemove(n), "只有用户新增或导入的 DSH 配置可以删除。");
+        check(b.confirmed === true, "请确认删除所选服务。");
+        await ctx.settings.mutate(
+          f.ns,
+          [{ op: "unset", path: ["servers", n] }],
+          f.revision,
+        );
+        oauth.removed(n);
+        return {};
+      }
       if (b.action === "enable") {
-        check(!s, "静态条目请在所属插件设置中启停。");
         check(typeof b.enabled === "boolean", "无效的启停状态。");
+        if (s) {
+          check(s.row.id, "无法定位静态配置行。");
+          const result = await ctx.pluginManager.setPluginEnabled(
+            s.row.id,
+            b.enabled,
+          );
+          check(
+            result.application !== "overridden",
+            "此条目的启停状态被更高优先级配置覆盖。",
+          );
+          check(
+            ["applied", "restart-required"].includes(result.application),
+            "宿主未能更改此静态条目的启停状态。",
+          );
+          return { restartRequired: result.application === "restart-required" };
+        }
         await ctx.settings.mutate(
           f.ns,
           [put(["servers", n, "enabled"], b.enabled)],

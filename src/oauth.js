@@ -313,6 +313,10 @@ export function authorizations(ctx, callbackUrl, read = target) {
     start,
     finish,
     note: (name) => notes.get(name),
+    removed(name) {
+      forget(name);
+      notes.delete(name);
+    },
     cancel(name) {
       forget(name);
       notice(name, "已取消等待授权。");

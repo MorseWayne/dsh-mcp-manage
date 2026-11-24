@@ -31,6 +31,16 @@ window.__ModuleLoader__.load({
       key: "配置凭据",
       enable: "启用",
       disable: "停用",
+      more: "更多",
+      remove: "删除",
+      confirmRemove:
+        "只删除下列服务在 DSH 中的配置。不会更改 Codex 源配置，也不会删除凭据。确认删除？",
+      removed: "已删除 DSH 服务配置。",
+      restartHost: "启停设置已保存，重启 DSH 后生效。",
+      staticRow: "此条目由静态插件配置提供，不能在此删除。",
+      inheritedRow: "此条目不是用户独立新增的配置，不能在此删除。",
+      notUserRow: "此条目不属于用户配置，不能在此删除。",
+      nameConflict: "同名配置有冲突，无法安全操作。",
       probe: "查看工具",
       registered: "插件托管",
       checkAuth: "检查鉴权方式",
@@ -109,6 +119,19 @@ window.__ModuleLoader__.load({
       key: "Set credential",
       enable: "Enable",
       disable: "Disable",
+      more: "More",
+      remove: "Delete",
+      confirmRemove:
+        "Delete only the following server configuration from DSH? The Codex source and stored credentials will be kept.",
+      removed: "DSH server configuration deleted.",
+      restartHost: "Setting saved. Restart DSH to apply it.",
+      staticRow:
+        "This entry comes from a static plugin configuration and cannot be deleted here.",
+      inheritedRow:
+        "This is not a user-only configuration and cannot be deleted here.",
+      notUserRow:
+        "This entry is not owned by user settings and cannot be deleted here.",
+      nameConflict: "Conflicting server names prevent a safe change.",
       probe: "List tools",
       registered: "Plugin-owned",
       checkAuth: "Check authentication",
@@ -354,7 +377,23 @@ window.__ModuleLoader__.load({
               )
             )
               return;
-            act({ action: "enable", name: r.name, enabled: !r.enabled });
+            act(
+              { action: "enable", name: r.name, enabled: !r.enabled },
+              (result) =>
+                msg(t(result.restartRequired ? "restartHost" : "saved")),
+            );
+          };
+          const remove = (r) => {
+            if (!window.confirm(t("confirmRemove") + "\n" + r.name)) return;
+            act({ action: "remove", name: r.name, confirmed: true }, () => {
+              if (open === r.name) {
+                setOpen("");
+                closeKey();
+              }
+              if (link?.name === r.name) setLink(null);
+              if (toolList?.name === r.name) setTools(null);
+              msg(t("removed"));
+            });
           };
           const alertRow = (r) =>
             [
@@ -374,8 +413,8 @@ window.__ModuleLoader__.load({
               name = r.name,
               details = open === name;
             const main =
-              r.state === "disabled" && r.editable
-                ? button(t("enable"), () => toggle(r), { className: "primary" })
+              r.enabled === false
+                ? null
                 : r.state === "waiting-credentials" &&
                     r.editable &&
                     !r.oauthBound
@@ -415,9 +454,23 @@ window.__ModuleLoader__.load({
                   t(stateKey[r.state] || r.state),
                 ),
                 main,
+                r.toggleable &&
+                  button(t(r.enabled ? "disable" : "enable"), () => toggle(r)),
                 button(t(details ? "less" : "details"), () => toggleRow(name), {
                   "aria-expanded": details,
                 }),
+                h(
+                  "details",
+                  null,
+                  h(
+                    "summary",
+                    { "aria-label": t("more") + " · " + name },
+                    t("more"),
+                  ),
+                  r.removal === "allowed"
+                    ? button(t("remove"), () => remove(r))
+                    : h("small", null, t(r.removal || "notUserRow")),
+                ),
               ),
               link?.name === name &&
                 h(
@@ -481,10 +534,6 @@ window.__ModuleLoader__.load({
                             setTools({ name, ...v }),
                           ),
                         { title: t("test") },
-                      ),
-                    r.editable &&
-                      button(t(r.enabled ? "disable" : "enable"), () =>
-                        toggle(r),
                       ),
                   ),
                   toolList?.name === name &&
