@@ -261,6 +261,7 @@ export function authorizations(ctx, callbackUrl, read = target) {
         f.redirect && f.verifier && !life.signal.aborted && pending.size < 32,
         "无法启动授权，请稍后再试。",
       );
+      f.expiresAt = Date.now() + ttl;
       f.timer = setTimeout(() => {
         clear(f);
         notice(name, "授权已过期，可重新发起。");
@@ -271,21 +272,44 @@ export function authorizations(ctx, callbackUrl, read = target) {
       return { url: f.redirect };
     });
   }
+  // A pasted redirect is input, never a navigation or a fetch target. Match the
+  // registered redirect URI verbatim before letting this row consume its state.
+  async function finishManual(name, raw) {
+    check(
+      typeof raw === "string" && raw.length <= 16384,
+      "请粘贴完整回调 URL。",
+    );
+    const text = raw.trim(),
+      query = text.indexOf("?");
+    check(
+      query > 0 && !/[\s#\\]/u.test(text),
+      "请粘贴地址栏中的完整回调 URL。",
+    );
+    const params = new URLSearchParams(text.slice(query + 1));
+    const f = pending.get(params.get("state"));
+    check(
+      f && f.name === name && f.callback === text.slice(0, query),
+      "回调地址无效、已过期或不属于此服务。",
+    );
+    await finish(params);
+  }
   async function finish(params) {
     const f = pending.get(params.get("state"));
     check(
-      f && params.getAll("state").length === 1,
+      f && Date.now() < f.expiresAt && params.getAll("state").length === 1,
       "授权已失效，请回面板重新发起。",
+    );
+    // Malformed pastes do not invalidate another otherwise valid attempt.
+    check(
+      params.getAll("iss").length <= 1 &&
+        (params.has("error") ||
+          (params.getAll("code").length === 1 && params.get("code"))),
+      "回调参数不完整或重复。",
     );
     clear(f);
     try {
       return await exclusive(f.name, async () => {
-        check(
-          !params.has("error") &&
-            params.getAll("code").length === 1 &&
-            params.get("code"),
-          "授权未完成或已取消。",
-        );
+        check(!params.has("error"), "授权未完成或已取消。");
         const t = read(ctx, f.name);
         check(
           t.form.revision === f.revision && t.url === f.url,
@@ -312,6 +336,11 @@ export function authorizations(ctx, callbackUrl, read = target) {
   return {
     start,
     finish,
+    finishManual,
+    waiting: (name) =>
+      Array.from(pending.values()).some(
+        (f) => f.name === name && Date.now() < f.expiresAt,
+      ),
     note: (name) => notes.get(name),
     removed(name) {
       forget(name);

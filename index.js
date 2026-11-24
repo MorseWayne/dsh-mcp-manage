@@ -86,6 +86,7 @@ export function management(ctx, callbackUrl) {
               count: status.toolCount,
               reason: diagnosis(status),
               note: oauth.note(name),
+              waitingForCallback: oauth.waiting(name),
               editable: own(f.servers, name) && !conflict(name),
               toggleable: own(f.servers, name) && !conflict(name),
               removal: conflict(name)
@@ -109,6 +110,7 @@ export function management(ctx, callbackUrl) {
                   count: s.status.toolCount,
                   reason: diagnosis(s.status),
                   note: oauth.note(s.name),
+                  waitingForCallback: oauth.waiting(s.name),
                   enabled: !s.disabled,
                   toggleable:
                     !!s.row.id &&
@@ -200,6 +202,10 @@ export function management(ctx, callbackUrl) {
         return {};
       }
       if (b.action === "login") return oauth.start(n, b.refresh === true);
+      if (b.action === "finishLogin") {
+        await oauth.finishManual(n, b.callbackUrl);
+        return { saved: true };
+      }
       if (b.action === "cancel") {
         oauth.cancel(n);
         return {};

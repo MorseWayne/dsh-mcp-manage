@@ -45,7 +45,12 @@ window.__ModuleLoader__.load({
       registered: "插件托管",
       checkAuth: "检查鉴权方式",
       authLink: "打开授权页 ↗",
-      authWait: "授权页已准备好。完成后返回这里；面板会更新连接状态。",
+      authWait: "完成浏览器授权后，面板会更新连接状态。",
+      manualLogin: "手动完成授权",
+      callbackLabel: "完整回调 URL",
+      manualHint:
+        "如果回环地址打不开，复制登录完成后地址栏中的完整 URL，只粘贴到这里。请通过 HTTPS 或可信隧道访问 DSH，不要分享此链接。",
+      submitCallback: "提交回调",
       cancel: "取消",
       load: "正在读取连接…",
       network: "无法访问管理接口，请刷新或检查插件状态。",
@@ -136,6 +141,11 @@ window.__ModuleLoader__.load({
       registered: "Plugin-owned",
       checkAuth: "Check authentication",
       authLink: "Open sign-in page ↗",
+      manualLogin: "Complete sign-in manually",
+      callbackLabel: "Full callback URL",
+      manualHint:
+        "If the loopback page cannot open, copy the full URL from the address bar after signing in. Paste it only here, over HTTPS or a trusted tunnel. Do not share it.",
+      submitCallback: "Submit callback",
       authWait:
         "Open the sign-in page, then return here. Connection status will update.",
       cancel: "Cancel",
@@ -242,7 +252,17 @@ window.__ModuleLoader__.load({
               s = life.current.signal;
             try {
               const d = await api({ action: "list" }, s);
-              if (!s.aborted && id === seq.current) setData(d);
+              if (!s.aborted && id === seq.current) {
+                setData(d);
+                setLink((prev) =>
+                  prev &&
+                  d.rows.some(
+                    (r) => r.name === prev.name && r.waitingForCallback,
+                  )
+                    ? prev
+                    : null,
+                );
+              }
             } catch (e) {
               if (!s.aborted && id === seq.current)
                 msg(e.message || t("network"));
@@ -277,10 +297,11 @@ window.__ModuleLoader__.load({
             : detected?.status === "found"
               ? detected.path
               : "";
-          const moving =
-            data?.rows.some((r) =>
+          const moving = data?.rows.some(
+            (r) =>
+              r.waitingForCallback ||
               ["connecting", "reconnecting"].includes(r.state),
-            ) || !!link;
+          );
           useEffect(() => {
             if (!moving) return;
             const id = setInterval(() => {
@@ -288,15 +309,6 @@ window.__ModuleLoader__.load({
             }, 4000);
             return () => clearInterval(id);
           }, [moving]);
-          useEffect(() => {
-            if (
-              link &&
-              data?.rows.some(
-                (r) => r.name === link.name && r.state === "connected",
-              )
-            )
-              setLink(null);
-          }, [data, link]);
           async function act(b, then) {
             if (lock.current) return;
             lock.current = true;
@@ -472,7 +484,7 @@ window.__ModuleLoader__.load({
                     : h("small", null, t(r.removal || "notUserRow")),
                 ),
               ),
-              link?.name === name &&
+              r.waitingForCallback &&
                 h(
                   "div",
                   { className: "notice sub" },
@@ -480,19 +492,71 @@ window.__ModuleLoader__.load({
                   h(
                     "div",
                     { className: "bar" },
-                    h(
-                      "a",
-                      {
-                        className: "link",
-                        href: link.url,
-                        target: "_blank",
-                        rel: "noopener noreferrer",
-                        referrerPolicy: "no-referrer",
-                      },
-                      t("authLink"),
-                    ),
+                    link?.name === name &&
+                      h(
+                        "a",
+                        {
+                          className: "link",
+                          href: link.url,
+                          target: "_blank",
+                          rel: "noopener noreferrer",
+                          referrerPolicy: "no-referrer",
+                        },
+                        t("authLink"),
+                      ),
                     button(t("cancel"), () =>
                       act({ action: "cancel", name }, () => setLink(null)),
+                    ),
+                  ),
+                  h(
+                    "details",
+                    null,
+                    h("summary", null, t("manualLogin")),
+                    h(
+                      "form",
+                      {
+                        className: "sub",
+                        autoComplete: "off",
+                        onSubmit: (event) => {
+                          event.preventDefault();
+                          if (lock.current) return;
+                          const input =
+                            event.currentTarget.elements.namedItem("callback");
+                          const callbackUrl = input.value.trim();
+                          input.value = "";
+                          act(
+                            { action: "finishLogin", name, callbackUrl },
+                            () => {
+                              setLink(null);
+                              msg(t("saved"));
+                            },
+                          );
+                        },
+                      },
+                      h("small", null, t("manualHint")),
+                      h(
+                        "label",
+                        null,
+                        t("callbackLabel"),
+                        h("input", {
+                          name: "callback",
+                          type: "password",
+                          required: true,
+                          maxLength: 16384,
+                          autoComplete: "off",
+                          spellCheck: false,
+                          disabled: busy,
+                        }),
+                      ),
+                      h(
+                        "div",
+                        { className: "bar" },
+                        h(
+                          "button",
+                          { type: "submit", disabled: busy },
+                          t("submitCallback"),
+                        ),
+                      ),
                     ),
                   ),
                 ),

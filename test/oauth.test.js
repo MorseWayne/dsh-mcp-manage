@@ -163,6 +163,52 @@ test("401 → discovery → PKCE → credential reference → same server lists 
   assert.equal(listed.result.tools[0].name, "sample");
   assert.ok(!JSON.stringify(form).includes("example-access"));
   await t.test(
+    "manual completion is bound to the row and exact callback, and races safely with automatic completion",
+    async () => {
+      const params = await begin(),
+        cb = `${base}/callback?${params}`;
+      assert.equal(a.waiting("demo"), true);
+      for (const [name, raw] of [
+        ["other", cb],
+        ["demo", cb.replace("/callback?", "/other?")],
+        ["demo", cb.replace(base, "https://example.invalid")],
+        ["demo", cb + "#fragment"],
+        ["demo", cb + "&code=second"],
+        ["demo", cb + "&state=duplicate"],
+        ["demo", cb.replace(params.get("state"), "incorrect")],
+        ["demo", "example-code"],
+      ]) {
+        await assert.rejects(
+          a.finishManual(name, raw),
+          (e) => !e.message.includes("example-code"),
+        );
+        assert.equal(a.waiting("demo"), true);
+      }
+      const outcomes = await Promise.allSettled([
+        a.finishManual("demo", cb),
+        a.finish(params),
+      ]);
+      assert.deepEqual(
+        outcomes.map((o) => o.status),
+        ["fulfilled", "rejected"],
+      );
+      await assert.rejects(a.finishManual("demo", cb));
+      assert.equal(exchanges, 2);
+      assert.equal(starts, 2);
+      assert.equal(a.waiting("demo"), false);
+      assert.equal(listed.result.tools[0].name, "sample");
+      assert.ok(
+        !JSON.stringify([...records.values()]).includes("example-code"),
+      );
+      const cancelled = await begin();
+      a.cancel("demo");
+      await assert.rejects(
+        a.finishManual("demo", `${base}/callback?${cancelled}`),
+      );
+      assert.equal(exchanges, 2);
+    },
+  );
+  await t.test(
     "installed DSH client resolves the saved reference and discovers a real MCP tool",
     { skip: !process.env.DSH_INSTALL_DIR },
     async () => {
