@@ -6,6 +6,17 @@ window.__ModuleLoader__.load({
       { useEffect, useState, useRef } = R;
     const zh = {
       nav: "MCP 管理",
+      edit: "编辑",
+      editMcp: "编辑 MCP 服务",
+      saveRestart: "保存并重启",
+      saveDisabled: "保存（保持停用）",
+      keepValue: "留空保留原值",
+      editSecrets:
+        "已有请求头和环境变量不回显。留空保留，输入新值替换，移除行会解除绑定。",
+      endpointWarning:
+        "更换端点不会沿用旧请求头：仅保存重新填写的值；OAuth 需重新授权。",
+      unchanged: "配置未变化，无需重启。",
+      staleEdit: "配置已变化。请取消并重新打开编辑器，以免覆盖其他修改。",
       unknown: "状态未知",
       static: "静态配置",
       intro: "查看连接、完成授权，或从 Codex 添加服务。",
@@ -121,6 +132,18 @@ window.__ModuleLoader__.load({
     };
     const en = {
       nav: "MCP manager",
+      edit: "Edit",
+      editMcp: "Edit MCP server",
+      saveRestart: "Save and restart",
+      saveDisabled: "Save (keep disabled)",
+      keepValue: "Leave blank to keep",
+      editSecrets:
+        "Existing header and environment values are hidden. Leave blank to keep, enter a replacement or remove the binding.",
+      endpointWarning:
+        "Changing the endpoint drops old headers unless you re-enter their values. Sign in again for OAuth.",
+      unchanged: "No configuration changes; no restart needed.",
+      staleEdit:
+        "Configuration changed. Cancel and reopen the editor to load the latest settings.",
       unknown: "Unknown",
       static: "Static configuration",
       intro: "Inspect connections, sign in, or add servers from Codex.",
@@ -267,9 +290,9 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind("mcpDesk");
         const btn = (label, click, props = {}) =>
           h("button", { type: "button", onClick: click, ...props }, label);
-        function ExtraFields({ kind, disabled }) {
-          const [ids, setIds] = useState([]),
-            next = useRef(0),
+        function ExtraFields({ kind, disabled, initial = [] }) {
+          const [ids, setIds] = useState(() => initial.map((_, i) => i)),
+            next = useRef(initial.length),
             args = kind === "args";
           const title = t(
             args ? "arg" : kind === "env" ? "envName" : "headerName",
@@ -287,6 +310,8 @@ window.__ModuleLoader__.load({
                   title + " " + (i + 1),
                   h("input", {
                     name: args ? "arg" : "fieldKey",
+                    defaultValue: initial[id] ?? "",
+                    readOnly: !args && id < initial.length,
                     required: !args,
                     disabled,
                   }),
@@ -297,6 +322,7 @@ window.__ModuleLoader__.load({
                     null,
                     t("fieldValue"),
                     h("input", {
+                      placeholder: id < initial.length ? t("keepValue") : "",
                       name: "fieldValue",
                       type: "password",
                       autoComplete: "new-password",
@@ -325,9 +351,12 @@ window.__ModuleLoader__.load({
             ),
           );
         }
-        function AddForm({ busy, ready, onSave, onCancel, onError }) {
-          const [transport, choose] = useState("streamable-http"),
-            [enabled, start] = useState(true),
+        function ServerForm({ busy, ready, onSave, onCancel, onError, draft }) {
+          const [transport, choose] = useState(
+              draft?.transport ?? "streamable-http",
+            ),
+            [enabled, start] = useState(draft?.enabled ?? true),
+            [url, setUrl] = useState(draft?.url ?? ""),
             stdio = transport === "stdio";
           const field = (label, name, props = {}) =>
             h(
@@ -350,7 +379,23 @@ window.__ModuleLoader__.load({
               onError(t("duplicateKey"));
               return;
             }
-            const fields = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+            let newEndpoint = false;
+            if (draft && !stdio) {
+              try {
+                newEndpoint =
+                  new URL(url.trim()).href !== new URL(draft.url).href;
+              } catch {
+                onError(t("urlHint"));
+                return;
+              }
+            }
+            const fields = Object.fromEntries(
+              keys.flatMap((k, i) => {
+                if (draft?.keys.includes(k) && vals[i] === "")
+                  return newEndpoint ? [] : [[k, null]];
+                return [[k, vals[i]]];
+              }),
+            );
             const config = stdio
               ? {
                   command: fd.get("command").trim(),
@@ -361,15 +406,28 @@ window.__ModuleLoader__.load({
                     : {}),
                 }
               : { url: fd.get("url").trim(), http_headers: fields };
-            onSave({ action: "add", name, transport, config, enabled });
+            onSave(
+              draft
+                ? {
+                    action: "update",
+                    name: draft.name,
+                    transport,
+                    config,
+                    revision: draft.revision,
+                  }
+                : { action: "add", name, transport, config, enabled },
+            );
           }
           return h(
             "form",
             { className: "box sub", onSubmit: submit, autoComplete: "off" },
-            h("h3", null, t("addMcp")),
+            h("h3", null, t(draft ? "editMcp" : "addMcp")),
             field(t("serverName"), "serverName", {
               required: true,
               maxLength: 32,
+              autoFocus: true,
+              readOnly: !!draft,
+              defaultValue: draft?.name ?? "",
             }),
             h(
               "label",
@@ -379,7 +437,7 @@ window.__ModuleLoader__.load({
                 "select",
                 {
                   value: transport,
-                  disabled: busy,
+                  disabled: busy || !!draft,
                   onChange: (e) => choose(e.target.value),
                 },
                 h("option", { value: "streamable-http" }, "Streamable HTTP"),
@@ -394,30 +452,51 @@ window.__ModuleLoader__.load({
                 ? field(t("executable"), "command", {
                     required: true,
                     placeholder: "node",
+                    defaultValue: draft?.command ?? "",
                   })
                 : field("URL", "url", {
                     type: "url",
                     required: true,
                     placeholder: "https://example.com/mcp",
+                    value: url,
+                    onChange: (e) => setUrl(e.target.value),
                   }),
-              stdio && field(t("cwd"), "cwd"),
-              stdio && h(ExtraFields, { kind: "args", disabled: busy }),
+              draft && h("small", null, t("editSecrets")),
+              draft &&
+                !stdio &&
+                url !== draft.url &&
+                h(
+                  "p",
+                  { className: "notice", role: "status" },
+                  t("endpointWarning"),
+                ),
+              stdio &&
+                field(t("cwd"), "cwd", { defaultValue: draft?.cwd ?? "" }),
+              stdio &&
+                h(ExtraFields, {
+                  kind: "args",
+                  disabled: busy,
+                  initial: draft?.args,
+                }),
               h(ExtraFields, {
                 kind: stdio ? "env" : "headers",
                 disabled: busy,
+                initial: draft?.keys,
               }),
             ),
-            h(
-              "label",
-              { className: "line" },
-              h("input", {
-                type: "checkbox",
-                checked: enabled,
-                disabled: busy,
-                onChange: (e) => start(e.target.checked),
-              }),
-              t("startOnSave"),
-            ),
+            draft && !ready && h("p", { role: "status" }, t("staleEdit")),
+            !draft &&
+              h(
+                "label",
+                { className: "line" },
+                h("input", {
+                  type: "checkbox",
+                  checked: enabled,
+                  disabled: busy,
+                  onChange: (e) => start(e.target.checked),
+                }),
+                t("startOnSave"),
+              ),
             h(
               "div",
               { className: "bar" },
@@ -428,7 +507,15 @@ window.__ModuleLoader__.load({
                   className: "primary",
                   disabled: busy || !ready,
                 },
-                t(enabled ? "saveStart" : "saveOff"),
+                t(
+                  draft
+                    ? enabled
+                      ? "saveRestart"
+                      : "saveDisabled"
+                    : enabled
+                      ? "saveStart"
+                      : "saveOff",
+                ),
               ),
               btn(t("cancel"), onCancel, { disabled: busy }),
             ),
@@ -449,6 +536,7 @@ window.__ModuleLoader__.load({
             [link, setLink] = useState(null),
             [toolList, setTools] = useState(null);
           const [adding, setAdding] = useState(false),
+            [editing, setEditing] = useState(null),
             [imports, panel] = useState(false),
             [kind, type] = useState("toml"),
             [location, path] = useState(""),
@@ -530,7 +618,7 @@ window.__ModuleLoader__.load({
               const r = await api(
                 {
                   ...b,
-                  revision: data?.revision,
+                  revision: b.revision ?? data?.revision,
                   rowRevision: data?.rows.find((r) => r.name === b.name)
                     ?.rowRevision,
                 },
@@ -542,7 +630,11 @@ window.__ModuleLoader__.load({
                 await reload();
               }
             } catch (e) {
-              if (!life.current.signal.aborted) msg(e.message || t("network"));
+              if (!life.current.signal.aborted) {
+                msg(e.message || t("network"));
+                if (b.action === "update" || b.action === "editView")
+                  await reload();
+              }
             } finally {
               lock.current = false;
               if (!life.current.signal.aborted) setBusy(false);
@@ -691,6 +783,15 @@ window.__ModuleLoader__.load({
                     { "aria-label": t("more") + " · " + name },
                     t("more"),
                   ),
+                  r.removal === "allowed" &&
+                    button(t("edit"), () =>
+                      act({ action: "editView", name }, (draft) => {
+                        panel(false);
+                        setAdding(false);
+                        closeKey();
+                        setEditing(draft);
+                      }),
+                    ),
                   r.removal === "allowed"
                     ? button(t("remove"), () => remove(r))
                     : h("small", null, t(r.removal || "notUserRow")),
@@ -1085,6 +1186,7 @@ window.__ModuleLoader__.load({
                   panel(false);
                   clear();
                   msg("");
+                  setEditing(null);
                   setAdding(!adding);
                 },
                 { "aria-expanded": adding, className: "primary" },
@@ -1096,6 +1198,7 @@ window.__ModuleLoader__.load({
                   setCustomPath(false);
                   setDetected(null);
                   path("");
+                  setEditing(null);
                   setAdding(false);
                   panel(!imports);
                   clear();
@@ -1109,11 +1212,19 @@ window.__ModuleLoader__.load({
                 { className: "notice", role: "status" },
                 message || t("working"),
               ),
-            adding &&
-              h(AddForm, {
+            (adding || editing) &&
+              h(ServerForm, {
+                key: editing
+                  ? `edit:${editing.name}:${editing.revision}`
+                  : "add",
+                draft: editing,
                 busy,
-                ready: !!data,
-                onCancel: () => setAdding(false),
+                ready:
+                  !!data && (!editing || data.revision === editing.revision),
+                onCancel: () => {
+                  setAdding(false);
+                  setEditing(null);
+                },
                 onError: msg,
                 onSave: (b) =>
                   act(b, (r) => {
@@ -1122,7 +1233,16 @@ window.__ModuleLoader__.load({
                     setOpen(r.name);
                     closeKey();
                     setTools(null);
-                    msg(t("added"));
+                    setEditing(null);
+                    msg(
+                      t(
+                        b.action === "add"
+                          ? "added"
+                          : r.changed
+                            ? "saved"
+                            : "unchanged",
+                      ),
+                    );
                   }),
               }),
             importPanel,

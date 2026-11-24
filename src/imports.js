@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { homedir } from "node:os";
@@ -289,19 +290,22 @@ function occupied(ctx, f) {
   ]);
 }
 
-async function saveNew(ctx, f, chosen) {
+function saveNew(ctx, f, chosen) {
+  return writeChanges(
+    ctx,
+    f,
+    chosen.flatMap((r) => r.secrets),
+    chosen.map((r) => put(["servers", r.summary.name], r.entry)),
+  );
+}
+async function writeChanges(ctx, f, secrets, ops) {
   const stored = [];
   try {
-    for (const r of chosen)
-      for (const [ref, val] of r.secrets) {
-        await ctx.credentials.set(ref, val);
-        stored.push(ref);
-      }
-    await ctx.settings.mutate(
-      f.ns,
-      chosen.map((r) => put(["servers", r.summary.name], r.entry)),
-      f.revision,
-    );
+    for (const [ref, val] of secrets) {
+      await ctx.credentials.set(ref, val);
+      stored.push(ref);
+    }
+    await ctx.settings.mutate(f.ns, ops, f.revision);
   } catch (e) {
     await Promise.allSettled(stored.map((k) => ctx.credentials.unset(k)));
     throw e;
@@ -334,6 +338,89 @@ export async function addServer(
   r.entry.enabled = enabled;
   await saveNew(ctx, f, [r]);
   return { name, enabled };
+}
+
+// Never expose a header/env value (including credential references) to the editor.
+export function editView(name, e, revision) {
+  const stdio = e.transport === "stdio";
+  if (!stdio)
+    check(
+      e.transport === "streamable-http" &&
+        !endpoint(e.url).search &&
+        !e.url.includes("${"),
+      "不支持编辑含查询参数或模板的端点。",
+    );
+  return {
+    name,
+    revision,
+    transport: e.transport,
+    enabled: e.enabled !== false,
+    ...(stdio
+      ? { command: e.command, args: e.args ?? [], cwd: e.cwd ?? "" }
+      : { url: e.url }),
+    keys: Object.keys((stdio ? e.env : e.headers) ?? {}),
+  };
+}
+
+export async function updateServer(ctx, f, e, b) {
+  const { name, transport, config } = b;
+  check(
+    transport === e.transport && plain(config) && !own(b, "enabled"),
+    "编辑不能更改传输类型或启停状态。",
+  );
+  const stdio = transport === "stdio",
+    mapKey = stdio ? "env" : "http_headers",
+    field = stdio ? "env" : "headers",
+    allowed = stdio
+      ? ["command", "args", "cwd", "env"]
+      : ["url", "http_headers"];
+  check(
+    Object.keys(config).every((k) => allowed.includes(k)) &&
+      allowed.filter((k) => k !== "cwd").every((k) => own(config, k)) &&
+      plain(config[mapKey]),
+    "请提交完整的服务配置。",
+  );
+  const view = editView(name, e, f.revision),
+    before = e[field] ?? {},
+    keep = [],
+    values = [];
+  // null means keep this exact key on this exact service; omission removes it.
+  for (const [key, v] of Object.entries(config[mapKey])) {
+    if (v === null) {
+      check(own(before, key), "不能保留不存在的凭据。");
+      keep.push(key);
+    }
+    values.push([key, v === null ? "" : v]);
+  }
+  const r = convert(name, { ...config, [mapKey]: Object.fromEntries(values) });
+  const changedUrl = !stdio && endpoint(view.url).href !== r.entry.url;
+  check(
+    !changedUrl || !keep.length,
+    "端点已更改，旧请求头不能转发；请重新填写或移除。",
+  );
+  for (const k of keep) r.entry[field][k] = before[k];
+  const next = stdio
+    ? {
+        command: r.entry.command,
+        args: r.entry.args,
+        cwd: r.entry.cwd ?? "",
+        env: r.entry.env,
+      }
+    : { url: changedUrl ? r.entry.url : e.url, headers: r.entry.headers };
+  const defaults = { args: [], env: {}, headers: {}, cwd: "" };
+  const ops = Object.entries(next)
+    .filter(
+      ([k, v]) =>
+        !isDeepStrictEqual(
+          k === field ? { ...before } : (e[k] ?? defaults[k]),
+          v,
+        ),
+    )
+    .map(([k, v]) => put(["servers", name, k], v));
+  // One revision-checked settings transaction. Native reconciliation remounts
+  // only changed, enabled entries; don't issue an extra restart or touch enabled.
+  if (ops.length) await writeChanges(ctx, f, r.secrets, ops);
+  return { name, changed: !!ops.length, enabled: view.enabled };
 }
 
 export function importer(ctx) {

@@ -79,6 +79,119 @@ function fixture(t) {
     rows: async () => (await action({ action: "list" })).rows,
   };
 }
+test("editing an enabled HTTP entry keeps credentials host-side and submits one native reconfiguration", async (t) => {
+  const { form, ctx, action, changes, stored } = fixture(t);
+  const name = "web";
+  await action({
+    action: "add",
+    name,
+    transport: "streamable-http",
+    config: {
+      url: "https://one.test/mcp",
+      http_headers: {
+        Authorization: "Bearer private",
+        "X-Remove": "private-two",
+      },
+    },
+  });
+  const entry = form.value.servers.web,
+    kept = entry.headers.Authorization;
+  entry.startupTimeoutMs = 4321;
+  const draft = await action({ action: "editView", name });
+  assert.deepEqual(draft.keys, ["Authorization", "X-Remove"]);
+  assert.ok(!JSON.stringify(draft).includes("private"));
+  assert.ok(!JSON.stringify(draft).includes(kept));
+  const update = (headers, url = draft.url) =>
+    action({
+      action: "update",
+      name,
+      transport: draft.transport,
+      config: { url, http_headers: headers },
+    });
+  let writes = 0;
+  const mutate = ctx.settings.mutate;
+  ctx.settings.mutate = (...args) => {
+    writes++;
+    return mutate(...args);
+  };
+  const size = changes.length;
+  assert.equal(
+    (await update({ Authorization: null, "X-Remove": null })).changed,
+    false,
+  );
+  assert.equal(changes.length, size);
+  assert.equal(writes, 0);
+  await assert.rejects(
+    update({ Authorization: null }, "https://two.test/mcp"),
+    /旧请求头/,
+  );
+  assert.equal(writes, 0);
+  const result = await update({ Authorization: null, "X-New": "fresh" });
+  assert.deepEqual(result, { name, changed: true, enabled: true });
+  assert.equal(writes, 1);
+  assert.equal(form.value.servers.web.headers.Authorization, kept);
+  assert.ok(!("X-Remove" in form.value.servers.web.headers));
+  assert.ok(!JSON.stringify(form).includes("fresh"));
+  assert.equal(form.value.servers.web.startupTimeoutMs, 4321);
+  await update({}, "https://two.test/mcp");
+  assert.equal(writes, 2);
+  assert.deepEqual(form.value.servers.web.headers, {});
+  assert.equal(form.value.servers.web.enabled, true);
+  assert.equal(stored.size, 3);
+});
+test("stdio edit preserves disabled state, argv boundaries and draft revision", async (t) => {
+  const { form, action, changes, stored } = fixture(t);
+  const name = "local",
+    transport = "stdio",
+    config = {
+      command: "node",
+      args: ["one"],
+      cwd: tmpdir(),
+      env: { KEY: "private-marker" },
+    };
+  await action({ action: "add", name, transport, config, enabled: false });
+  const draft = await action({ action: "editView", name });
+  assert.deepEqual(draft.args, ["one"]);
+  assert.deepEqual(draft.keys, ["KEY"]);
+  assert.ok(!JSON.stringify(draft).includes("private-marker"));
+  const b = {
+    action: "update",
+    name,
+    revision: draft.revision,
+    transport,
+    config: {
+      command: "other",
+      args: ["one file", "--port", "5"],
+      env: { KEY: null },
+    },
+  };
+  const keep = form.value.servers.local.env.KEY;
+  await action(b);
+  assert.equal(form.value.servers.local.enabled, false);
+  assert.equal(form.value.servers.local.command, "other");
+  assert.equal(form.value.servers.local.cwd, "");
+  assert.deepEqual(form.value.servers.local.args, b.config.args);
+  assert.equal(form.value.servers.local.env.KEY, keep);
+  const before = changes.length;
+  assert.equal(
+    (await action({ ...b, revision: form.revision })).changed,
+    false,
+  );
+  assert.equal(changes.length, before);
+  const rev = form.revision;
+  await action({ action: "enable", name, enabled: true });
+  await assert.rejects(action({ ...b, revision: rev }), /配置已变化/);
+  assert.equal(form.value.servers.local.enabled, true);
+  assert.equal(stored.size, 1);
+  for (const patch of [
+    { enabled: false },
+    { transport: "streamable-http" },
+    { config: { ...b.config, env: { UNKNOWN: null } } },
+    { name: "base" },
+    { name: "dynamic" },
+  ])
+    await assert.rejects(action({ ...b, revision: form.revision, ...patch }));
+});
 test("only confirmed user-owned DSH entries can be removed; import source, siblings and credentials survive", async (t) => {
   const { form, changes, rows, action, stored } = fixture(t);
   const root = await mkdtemp(path.join(tmpdir(), "dsh-lifecycle-"));

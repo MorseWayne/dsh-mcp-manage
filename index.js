@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { authorizations, CALLBACK } from "./src/oauth.js";
-import { addServer, detectCodexConfig, importer } from "./src/imports.js";
+import {
+  addServer,
+  editView,
+  updateServer,
+  detectCodexConfig,
+  importer,
+} from "./src/imports.js";
 import { statics, staticEntry, bindStatic } from "./src/static.js";
 import {
   check,
@@ -166,6 +172,11 @@ export function management(ctx, callbackUrl) {
         e && f.revision === b.revision,
         "配置已变化或由其他插件管理，请刷新。",
       );
+      if (b.action === "editView" || b.action === "update") {
+        check(!s && f.canRemove(n), "只能编辑用户添加或导入的服务。");
+        if (b.action === "editView") return editView(n, e, f.revision);
+        return updateServer(ctx, f, e, b);
+      }
       if (b.action === "remove") {
         check(!s && f.canRemove(n), "只有用户新增或导入的 DSH 配置可以删除。");
         check(b.confirmed === true, "请确认删除所选服务。");
