@@ -1,0 +1,50 @@
+{
+  "name": "dsh-mcp-manage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP connections, browser sign-in and reviewed Codex imports for DSH Web",
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.2-rc.5"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-connection"
+      ]
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.2.0",
+    "smol-toml": "^1.4.2"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

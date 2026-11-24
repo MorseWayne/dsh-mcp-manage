@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP 管理",
+    "description": "在设置中查看 MCP 连接、发起浏览器授权，预览并导入 Codex 配置或插件的 MCP 声明。导入后默认停用。"
+  }
+}

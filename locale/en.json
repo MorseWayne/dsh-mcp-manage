@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP manager",
+    "description": "Inspect MCP connections, sign in through the browser and review Codex configuration or plugin MCP declarations. Imported servers start disabled."
+  }
+}
