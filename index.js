@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { authorizations, CALLBACK } from "./src/oauth.js";
-import { importer } from "./src/imports.js";
+import { detectCodexConfig, importer } from "./src/imports.js";
 import { statics, staticEntry, bindStatic } from "./src/static.js";
 import {
   check,
@@ -68,6 +68,7 @@ export function management(ctx, callbackUrl) {
     callback: (p) => oauth.finish(p),
     async action(b) {
       check(b && typeof b.action === "string", "无效操作。");
+      if (b.action === "detectCodexConfig") return detectCodexConfig();
       if (b.action === "preview") return imports.preview(b.kind, b.location);
       if (b.action === "import") return imports.commit(b.id, b.names);
       const f = snapshot(ctx),

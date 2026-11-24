@@ -44,7 +44,14 @@ window.__ModuleLoader__.load({
       toml: "Codex 配置 · TOML",
       plugin: "Codex Plugin · MCP 声明",
       path: "宿主机上的绝对路径",
-      defaultPath: "留空使用 CODEX_HOME 或 ~/.codex/config.toml",
+      changePath: "更改路径",
+      useDefault: "使用默认路径",
+      detecting: "正在检测宿主上的 Codex 配置…",
+      found: "已找到 Codex 配置",
+      missingFile: "未找到默认配置，可更改路径。",
+      unavailable: "默认配置不可读取或不是受支持的文件，可更改路径。",
+      detectFailed: "无法检测宿主路径，可手动指定。",
+      customPath: "TOML 配置文件的绝对路径",
       pluginPath: "例如 /home/me/plugins/my-plugin",
       preview: "预览条目",
       review:
@@ -116,7 +123,15 @@ window.__ModuleLoader__.load({
       toml: "Codex configuration · TOML",
       plugin: "Codex plugin · MCP declarations",
       path: "Absolute path on the host",
-      defaultPath: "Leave blank for CODEX_HOME or ~/.codex/config.toml",
+      changePath: "Change path",
+      useDefault: "Use default path",
+      detecting: "Looking for Codex configuration on the host…",
+      found: "Codex configuration found",
+      missingFile: "Default configuration not found. Choose another path.",
+      unavailable:
+        "The default configuration is unreadable or unsupported. Choose another path.",
+      detectFailed: "Could not detect the host path. Enter one manually.",
+      customPath: "Absolute path to a TOML configuration file",
       pluginPath: "e.g. /home/me/plugins/my-plugin",
       preview: "Preview servers",
       review:
@@ -192,6 +207,8 @@ window.__ModuleLoader__.load({
           const [imports, panel] = useState(false),
             [kind, type] = useState("toml"),
             [location, path] = useState(""),
+            [customPath, setCustomPath] = useState(false),
+            [detected, setDetected] = useState(null),
             [plan, preview] = useState(null),
             [selected, select] = useState([]);
           const life = useRef(),
@@ -217,6 +234,26 @@ window.__ModuleLoader__.load({
               window.removeEventListener("focus", reload);
             };
           }, []);
+          useEffect(() => {
+            if (!imports || kind !== "toml" || customPath) return;
+            const controller = new AbortController();
+            api({ action: "detectCodexConfig" }, controller.signal).then(
+              (result) => {
+                if (!controller.signal.aborted) setDetected(result);
+              },
+              () => {
+                if (!controller.signal.aborted)
+                  setDetected({ status: "error" });
+              },
+            );
+            return () => controller.abort();
+          }, [imports, kind, customPath]);
+          const manual = kind === "plugin" || customPath;
+          const previewPath = manual
+            ? location.trim()
+            : detected?.status === "found"
+              ? detected.path
+              : "";
           const moving =
             data?.rows.some((r) =>
               ["connecting", "reconnecting"].includes(r.state),
@@ -556,8 +593,11 @@ window.__ModuleLoader__.load({
                   "select",
                   {
                     value: kind,
+                    disabled: busy,
                     onChange: (e) => {
                       type(e.target.value);
+                      setCustomPath(false);
+                      setDetected(null);
                       path("");
                       clear();
                     },
@@ -566,21 +606,56 @@ window.__ModuleLoader__.load({
                   h("option", { value: "plugin" }, t("plugin")),
                 ),
               ),
-              h(
-                "label",
-                null,
-                t("path"),
-                h("input", {
-                  value: location,
-                  placeholder: t(
-                    kind === "toml" ? "defaultPath" : "pluginPath",
+              !manual &&
+                h(
+                  "div",
+                  { className: "sub", role: "status" },
+                  h(
+                    "small",
+                    null,
+                    t(
+                      {
+                        found: "found",
+                        missing: "missingFile",
+                        unavailable: "unavailable",
+                        error: "detectFailed",
+                      }[detected?.status] || "detecting",
+                    ),
                   ),
-                  onChange: (e) => {
-                    path(e.target.value);
-                    clear();
-                  },
-                }),
-              ),
+                  detected?.path && h("code", null, detected.path),
+                ),
+              kind === "toml" &&
+                h(
+                  "div",
+                  { className: "bar" },
+                  button(
+                    t(customPath ? "useDefault" : "changePath"),
+                    () => {
+                      path(customPath ? "" : detected?.path || "");
+                      setCustomPath(!customPath);
+                      setDetected(null);
+                      clear();
+                    },
+                    { "aria-expanded": customPath },
+                  ),
+                ),
+              manual &&
+                h(
+                  "label",
+                  null,
+                  t("path"),
+                  h("input", {
+                    value: location,
+                    disabled: busy,
+                    placeholder: t(
+                      kind === "toml" ? "customPath" : "pluginPath",
+                    ),
+                    onChange: (e) => {
+                      path(e.target.value);
+                      clear();
+                    },
+                  }),
+                ),
               h(
                 "div",
                 { className: "bar" },
@@ -588,12 +663,15 @@ window.__ModuleLoader__.load({
                   t("preview"),
                   () => {
                     clear();
-                    act({ action: "preview", kind, location }, (v) => {
-                      preview(v);
-                      select([]);
-                    });
+                    act(
+                      { action: "preview", kind, location: previewPath },
+                      (v) => {
+                        preview(v);
+                        select([]);
+                      },
+                    );
                   },
-                  { disabled: busy || (kind === "plugin" && !location) },
+                  { disabled: busy || !previewPath },
                 ),
               ),
               plan &&
@@ -679,6 +757,10 @@ window.__ModuleLoader__.load({
               button(
                 t(imports ? "done" : "import"),
                 () => {
+                  type("toml");
+                  setCustomPath(false);
+                  setDetected(null);
+                  path("");
                   panel(!imports);
                   clear();
                 },

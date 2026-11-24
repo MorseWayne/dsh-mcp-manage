@@ -7,7 +7,7 @@ DSH Web 的独立设置页。复用当前 profile 的 MCP Manager、Settings 和
 1. 在本目录 `npm ci --ignore-scripts`；在 DSH **插件 → 添加插件** 选择这个本地目录。打开 **设置 → MCP 管理**。如安装提示需要重启，先按提示重启并刷新页面。
 2. 对已启用、未登录的 HTTP 配置，点 **检查并授权 → 打开授权页**。插件向已配置的服务发无凭据的 MCP 初始化请求，验证 OAuth 发现信息；可动态注册公共客户端的服务使用授权码 + PKCE。没有 OAuth 元数据的服务改用 **详情 → 配置凭据**。只需静态 Bearer 时保留 Bearer 前缀开关；API Key 使用服务指定的请求头并取消前缀。
 3. 返回同一行。只有 DSH 完成连接并同步工具后才显示「已连接」和工具数量。**查看工具**单独探测，不调用业务工具。**重连**按当前配置重新挂载；**刷新授权**尝试 refresh grant，必要时给出新的浏览器登录链接。首版不做后台定时续期。
-4. **从 Codex 导入**选择来源。普通配置默认读取宿主 `$CODEX_HOME/config.toml`（否则 `~/.codex/config.toml`），也可指定 TOML 绝对路径。插件模式输入宿主上的插件目录绝对路径；读取 `.codex-plugin/plugin.json` 的 `mcpServers` 内联对象、其指向的 JSON 或默认 `.mcp.json`。不加载插件代码、hooks、skills 或 marketplace，不扫描 Codex 的登录存储。
+4. **从 Codex 导入**选择来源。面板打开时自动检测并显示宿主上的 Codex 配置路径：优先 `$CODEX_HOME/config.toml`，未设置时使用 `~/.codex/config.toml`。找到后直接点 **预览条目**；找不到或想使用其他配置时，点 **更改路径** 输入 TOML 绝对路径。检测不读取配置内容，也不会执行命令或自动导入。插件模式输入宿主上的插件目录绝对路径；读取 `.codex-plugin/plugin.json` 的 `mcpServers` 内联对象、其指向的 JSON 或默认 `.mcp.json`。不加载插件代码、hooks、skills 或 marketplace，不扫描 Codex 的登录存储。
 5. 检查预览、勾选、导入。**所有新服务先停用**，启用 stdio 会在宿主启动所列命令，因此只启用可信来源。已有配置和插件注册的同名服务不覆盖。预览五分钟失效；配置发生变化时重新预览。
 
 ## 映射及边界

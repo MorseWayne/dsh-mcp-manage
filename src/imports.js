@@ -24,11 +24,35 @@ function inside(root, file) {
     rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel)
   );
 }
+const openConfig = (file) =>
+  open(file, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+export function defaultCodexPath(
+  codexHome = process.env.CODEX_HOME,
+  home = homedir(),
+) {
+  return path.resolve(codexHome || path.join(home, ".codex"), "config.toml");
+}
+export async function detectCodexConfig() {
+  const file = defaultCodexPath();
+  let handle;
+  try {
+    handle = await openConfig(file);
+    const s = await handle.stat();
+    return {
+      path: file,
+      status: s.isFile() && s.size <= max ? "found" : "unavailable",
+    };
+  } catch (e) {
+    return {
+      path: file,
+      status: e.code === "ENOENT" ? "missing" : "unavailable",
+    };
+  } finally {
+    await handle?.close();
+  }
+}
 async function text(file) {
-  const f = await open(
-    file,
-    constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-  );
+  const f = await openConfig(file);
   try {
     const s = await f.stat();
     check(s.isFile() && s.size <= max, "配置必须是 1 MiB 以内的普通文件。");
@@ -49,12 +73,7 @@ export async function loadSource(kind, location = "") {
   check(typeof location === "string" && location.length <= 4096, "无效路径。");
   try {
     if (kind === "toml") {
-      const file =
-        location ||
-        path.join(
-          process.env.CODEX_HOME || path.join(homedir(), ".codex"),
-          "config.toml",
-        );
+      const file = location || defaultCodexPath();
       check(
         path.isAbsolute(file) && path.extname(file) === ".toml",
         "请选择宿主上的 TOML 配置绝对路径。",
