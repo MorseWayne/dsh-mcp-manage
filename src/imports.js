@@ -281,6 +281,61 @@ export function convert(name, raw, root) {
   };
 }
 import { statics } from "./static.js";
+function occupied(ctx, f) {
+  return new Set([
+    ...Object.keys(f.servers),
+    ...ctx.mcpManager.list().map((r) => r.name),
+    ...statics(ctx).map((r) => r.name),
+  ]);
+}
+
+async function saveNew(ctx, f, chosen) {
+  const stored = [];
+  try {
+    for (const r of chosen)
+      for (const [ref, val] of r.secrets) {
+        await ctx.credentials.set(ref, val);
+        stored.push(ref);
+      }
+    await ctx.settings.mutate(
+      f.ns,
+      chosen.map((r) => put(["servers", r.summary.name], r.entry)),
+      f.revision,
+    );
+  } catch (e) {
+    await Promise.allSettled(stored.map((k) => ctx.credentials.unset(k)));
+    throw e;
+  }
+}
+
+export async function addServer(
+  ctx,
+  { name, transport, config, revision, enabled = true },
+) {
+  check(serverName(name), "服务名须为 1–32 位字母、数字、下划线或连字符。");
+  check(
+    transport === "stdio" || transport === "streamable-http",
+    "无效的传输类型。",
+  );
+  check(typeof enabled === "boolean" && plain(config), "服务配置无效。");
+  const stdio = transport === "stdio",
+    fields = stdio
+      ? ["command", "args", "cwd", "env"]
+      : ["url", "http_headers"];
+  check(
+    own(config, stdio ? "command" : "url") &&
+      Object.keys(config).every((k) => fields.includes(k)),
+    "配置字段与传输类型不符。",
+  );
+  const f = snapshot(ctx);
+  check(f.revision === revision, "配置已变化，请刷新后重试。");
+  check(!occupied(ctx, f).has(name), "同名服务已存在，不覆盖。");
+  const r = convert(name, config);
+  r.entry.enabled = enabled;
+  await saveNew(ctx, f, [r]);
+  return { name, enabled };
+}
+
 export function importer(ctx) {
   const plans = new Map();
   const drop = (id) => {
@@ -294,11 +349,7 @@ export function importer(ctx) {
       const pairs = Object.entries(source.servers);
       check(pairs.length <= 256, "一次最多导入 256 项。");
       const f = snapshot(ctx),
-        used = new Set([
-          ...Object.keys(f.servers),
-          ...statics(ctx).map((r) => r.name),
-          ...ctx.mcpManager.list().map((r) => r.name),
-        ]),
+        used = occupied(ctx, f),
         eligible = new Map();
       const rows = pairs.map(([name, raw]) => {
         if (used.has(name))
@@ -333,33 +384,16 @@ export function importer(ctx) {
       );
       const f = snapshot(ctx);
       check(f.revision === plan.revision, "配置已变化，请重新预览。");
-      const live = new Set(
-        [...ctx.mcpManager.list(), ...statics(ctx)].map((r) => r.name),
-      );
+      const live = occupied(ctx, f);
       const chosen = names.map((n) => {
         check(
-          !own(f.servers, n) && !live.has(n) && plan.eligible.has(n),
+          !live.has(n) && plan.eligible.has(n),
           "选项不可导入或名称已占用。",
         );
         return plan.eligible.get(n);
       });
       drop(id);
-      const stored = [];
-      try {
-        for (const r of chosen)
-          for (const [ref, val] of r.secrets) {
-            await ctx.credentials.set(ref, val);
-            stored.push(ref);
-          }
-        await ctx.settings.mutate(
-          f.ns,
-          chosen.map((r, i) => put(["servers", names[i]], r.entry)),
-          f.revision,
-        );
-      } catch (e) {
-        await Promise.allSettled(stored.map((k) => ctx.credentials.unset(k)));
-        throw e;
-      }
+      await saveNew(ctx, f, chosen);
       return { count: names.length };
     },
     dispose() {

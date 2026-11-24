@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { management } from "../index.js";
 import { convert, loadSource, importer } from "../src/imports.js";
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), "mcp-desk-test-"));
@@ -49,6 +50,90 @@ const ctx = () => {
     f,
   };
 };
+test("manual HTTP and stdio creation save enabled by default and protect literal credentials", async (t) => {
+  const c = ctx(),
+    service = management(c, () => {});
+  t.after(() => service.dispose());
+  const add = (b) =>
+    service.action({ action: "add", revision: c.f.revision, ...b });
+  const http = {
+    name: "web",
+    transport: "streamable-http",
+    config: {
+      url: "https://example.test/mcp",
+      http_headers: { Authorization: "Bearer secret-marker" },
+    },
+  };
+  assert.deepEqual(await add(http), { name: "web", enabled: true });
+  assert.equal(c.servers.web.url, http.config.url);
+  assert.equal(c.servers.web.enabled, true);
+  assert.match(c.servers.web.headers.Authorization, /^\$\{credential:/);
+  const cfg = {
+    command: "node",
+    args: ["file with spaces.js", "--port", "3000"],
+    cwd: tmpdir(),
+    env: { KEY: "secret-marker" },
+  };
+  await add({ name: "process", transport: "stdio", config: cfg });
+  assert.equal(c.servers.process.enabled, true);
+  assert.equal(c.servers.process.command, "node");
+  assert.deepEqual(c.servers.process.args, cfg.args);
+  assert.equal(c.servers.process.cwd, tmpdir());
+  assert.match(c.servers.process.env.KEY, /^\$\{credential:/);
+  assert.equal(c.values.size, 2);
+  assert.ok(!JSON.stringify(c.servers).includes("secret-marker"));
+  await add({
+    ...http,
+    name: "offline",
+    config: { url: http.config.url },
+    enabled: false,
+  });
+  assert.equal(c.servers.offline.enabled, false);
+});
+test("manual add rejects collisions, stale revisions and invalid inputs before writing and rolls back failed saves", async (t) => {
+  const c = ctx(),
+    service = management(c, () => {});
+  t.after(() => service.dispose());
+  c.servers.exists = { command: "keep" };
+  const rows = c.configEditor.entries();
+  c.configEditor.entries = () => [
+    ...rows,
+    {
+      options: {
+        name: "@deepseek-ai/dsh-mcp-client",
+        config: { serverName: "legacy" },
+      },
+    },
+  ];
+  const b = {
+    action: "add",
+    name: "new",
+    transport: "stdio",
+    revision: c.f.revision,
+    config: { command: "node", env: { API_KEY: "test" } },
+  };
+  for (const patch of [
+    { name: "exists" },
+    { name: "reserved" },
+    { name: "legacy" },
+    { name: "bad name" },
+    { revision: -1 },
+    { enabled: "yes" },
+    { transport: "other" },
+    { transport: "streamable-http" },
+    { config: { command: "  " } },
+    { config: { command: "node", url: "https://example.test" } },
+  ])
+    await assert.rejects(service.action({ ...b, ...patch }));
+  assert.deepEqual(c.servers, { exists: { command: "keep" } });
+  assert.equal(c.values.size, 0);
+  c.settings.mutate = () => {
+    throw Error("revision conflict");
+  };
+  await assert.rejects(service.action(b), /conflict/);
+  assert.equal(c.values.size, 0);
+  assert.equal(c.servers.new, undefined);
+});
 test("TOML → redacted preview, skip occupied names, preserve siblings and save disabled in one write", async (t) => {
   const dir = await fixture(t),
     file = path.join(dir, "config.toml");

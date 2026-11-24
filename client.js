@@ -13,7 +13,29 @@ window.__ModuleLoader__.load({
       import: "从 Codex 导入",
       all: "全部服务",
       attention: "需要处理",
-      empty: "还没有受管服务。可从 Codex 导入第一项。",
+      empty: "还没有受管服务。可手动添加或从 Codex 导入。",
+      addMcp: "添加 MCP",
+      serverName: "服务名（1–32 位字母、数字、下划线或连字符）",
+      transport: "传输类型",
+      executable: "可执行命令",
+      cwd: "工作目录（可选，宿主机绝对路径）",
+      arg: "参数",
+      addArg: "添加参数",
+      envName: "环境变量名",
+      addEnv: "添加环境变量",
+      headerName: "请求头名称",
+      addHeader: "添加请求头",
+      fieldValue: "值（存入凭据库）",
+      removeField: "移除",
+      startOnSave: "保存后立即启动",
+      saveStart: "保存并启动",
+      saveOff: "保存为停用",
+      hostHint:
+        "启用 stdio 会在 DSH 宿主机运行命令。只添加可信命令；参数逐项填写，不要在命令或参数中放密钥。",
+      urlHint:
+        "使用 HTTPS 或本机回环 HTTP。需要 OAuth 的服务可先不填请求头，保存后在服务行授权。",
+      duplicateKey: "请求头或变量名称重复。",
+      added: "已添加服务，连接结果请看服务状态。",
       none: "当前没有需要处理的服务。",
       ready: "已连接",
       disabled: "已停用",
@@ -106,7 +128,29 @@ window.__ModuleLoader__.load({
       import: "Import from Codex",
       all: "All servers",
       attention: "Needs attention",
-      empty: "No managed servers yet. Import your first server from Codex.",
+      empty: "No managed servers yet. Add one or import from Codex.",
+      addMcp: "Add MCP server",
+      serverName: "Server name (1–32 letters, digits, underscores or hyphens)",
+      transport: "Transport",
+      executable: "Executable command",
+      cwd: "Working directory (optional absolute host path)",
+      arg: "Argument",
+      addArg: "Add argument",
+      envName: "Environment variable name",
+      addEnv: "Add environment variable",
+      headerName: "Header name",
+      addHeader: "Add header",
+      fieldValue: "Value (stored in credentials)",
+      removeField: "Remove",
+      startOnSave: "Start immediately after saving",
+      saveStart: "Save and start",
+      saveOff: "Save disabled",
+      hostHint:
+        "Enabling stdio runs the command on the DSH host. Use trusted commands only, enter arguments separately and keep secrets out of arguments.",
+      urlHint:
+        "Use HTTPS or loopback HTTP. For OAuth, leave headers empty and sign in from the server row after saving.",
+      duplicateKey: "Duplicate header or variable name.",
+      added: "Server added. See connection status for the result.",
       none: "No servers need attention.",
       ready: "Connected",
       disabled: "Disabled",
@@ -223,6 +267,173 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind("mcpDesk");
         const btn = (label, click, props = {}) =>
           h("button", { type: "button", onClick: click, ...props }, label);
+        function ExtraFields({ kind, disabled }) {
+          const [ids, setIds] = useState([]),
+            next = useRef(0),
+            args = kind === "args";
+          const title = t(
+            args ? "arg" : kind === "env" ? "envName" : "headerName",
+          );
+          return h(
+            "div",
+            { className: "sub" },
+            ids.map((id, i) =>
+              h(
+                "div",
+                { className: "bar", key: id },
+                h(
+                  "label",
+                  null,
+                  title + " " + (i + 1),
+                  h("input", {
+                    name: args ? "arg" : "fieldKey",
+                    required: !args,
+                    disabled,
+                  }),
+                ),
+                !args &&
+                  h(
+                    "label",
+                    null,
+                    t("fieldValue"),
+                    h("input", {
+                      name: "fieldValue",
+                      type: "password",
+                      autoComplete: "new-password",
+                      disabled,
+                    }),
+                  ),
+                btn(
+                  t("removeField"),
+                  () => setIds(ids.filter((n) => n !== id)),
+                  {
+                    disabled,
+                    "aria-label":
+                      t("removeField") + " " + title + " " + (i + 1),
+                  },
+                ),
+              ),
+            ),
+            h(
+              "div",
+              null,
+              btn(
+                t(args ? "addArg" : kind === "env" ? "addEnv" : "addHeader"),
+                () => setIds([...ids, next.current++]),
+                { disabled },
+              ),
+            ),
+          );
+        }
+        function AddForm({ busy, ready, onSave, onCancel, onError }) {
+          const [transport, choose] = useState("streamable-http"),
+            [enabled, start] = useState(true),
+            stdio = transport === "stdio";
+          const field = (label, name, props = {}) =>
+            h(
+              "label",
+              null,
+              label,
+              h("input", { name, disabled: busy, ...props }),
+            );
+          function submit(event) {
+            event.preventDefault();
+            if (busy || !ready) return;
+            const fd = new FormData(event.currentTarget),
+              name = fd.get("serverName").trim(),
+              keys = fd.getAll("fieldKey").map((s) => s.trim()),
+              vals = fd.getAll("fieldValue");
+            if (
+              new Set(keys.map((k) => (stdio ? k : k.toLowerCase()))).size !==
+              keys.length
+            ) {
+              onError(t("duplicateKey"));
+              return;
+            }
+            const fields = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+            const config = stdio
+              ? {
+                  command: fd.get("command").trim(),
+                  args: fd.getAll("arg"),
+                  env: fields,
+                  ...(fd.get("cwd").trim()
+                    ? { cwd: fd.get("cwd").trim() }
+                    : {}),
+                }
+              : { url: fd.get("url").trim(), http_headers: fields };
+            onSave({ action: "add", name, transport, config, enabled });
+          }
+          return h(
+            "form",
+            { className: "box sub", onSubmit: submit, autoComplete: "off" },
+            h("h3", null, t("addMcp")),
+            field(t("serverName"), "serverName", {
+              required: true,
+              maxLength: 32,
+            }),
+            h(
+              "label",
+              null,
+              t("transport"),
+              h(
+                "select",
+                {
+                  value: transport,
+                  disabled: busy,
+                  onChange: (e) => choose(e.target.value),
+                },
+                h("option", { value: "streamable-http" }, "Streamable HTTP"),
+                h("option", { value: "stdio" }, "stdio"),
+              ),
+            ),
+            h("small", null, t(stdio ? "hostHint" : "urlHint")),
+            h(
+              "div",
+              { key: transport, className: "sub" },
+              stdio
+                ? field(t("executable"), "command", {
+                    required: true,
+                    placeholder: "node",
+                  })
+                : field("URL", "url", {
+                    type: "url",
+                    required: true,
+                    placeholder: "https://example.com/mcp",
+                  }),
+              stdio && field(t("cwd"), "cwd"),
+              stdio && h(ExtraFields, { kind: "args", disabled: busy }),
+              h(ExtraFields, {
+                kind: stdio ? "env" : "headers",
+                disabled: busy,
+              }),
+            ),
+            h(
+              "label",
+              { className: "line" },
+              h("input", {
+                type: "checkbox",
+                checked: enabled,
+                disabled: busy,
+                onChange: (e) => start(e.target.checked),
+              }),
+              t("startOnSave"),
+            ),
+            h(
+              "div",
+              { className: "bar" },
+              h(
+                "button",
+                {
+                  type: "submit",
+                  className: "primary",
+                  disabled: busy || !ready,
+                },
+                t(enabled ? "saveStart" : "saveOff"),
+              ),
+              btn(t("cancel"), onCancel, { disabled: busy }),
+            ),
+          );
+        }
         function Panel({ view }) {
           const [data, setData] = useState(null),
             [message, msg] = useState(""),
@@ -237,7 +448,8 @@ window.__ModuleLoader__.load({
             [bearer, setBearer] = useState(true),
             [link, setLink] = useState(null),
             [toolList, setTools] = useState(null);
-          const [imports, panel] = useState(false),
+          const [adding, setAdding] = useState(false),
+            [imports, panel] = useState(false),
             [kind, type] = useState("toml"),
             [location, path] = useState(""),
             [customPath, setCustomPath] = useState(false),
@@ -868,12 +1080,23 @@ window.__ModuleLoader__.load({
               ),
               button(t("reload"), reload),
               button(
+                t("addMcp"),
+                () => {
+                  panel(false);
+                  clear();
+                  msg("");
+                  setAdding(!adding);
+                },
+                { "aria-expanded": adding, className: "primary" },
+              ),
+              button(
                 t(imports ? "done" : "import"),
                 () => {
                   type("toml");
                   setCustomPath(false);
                   setDetected(null);
                   path("");
+                  setAdding(false);
                   panel(!imports);
                   clear();
                 },
@@ -886,6 +1109,22 @@ window.__ModuleLoader__.load({
                 { className: "notice", role: "status" },
                 message || t("working"),
               ),
+            adding &&
+              h(AddForm, {
+                busy,
+                ready: !!data,
+                onCancel: () => setAdding(false),
+                onError: msg,
+                onSave: (b) =>
+                  act(b, (r) => {
+                    setAdding(false);
+                    tab(false);
+                    setOpen(r.name);
+                    closeKey();
+                    setTools(null);
+                    msg(t("added"));
+                  }),
+              }),
             importPanel,
             h(
               "div",
